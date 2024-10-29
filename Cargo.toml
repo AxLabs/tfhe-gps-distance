@@ -1,0 +1,8 @@
+[package]
+authors = ["Guil. Sperb Machado <guil@axlabs.com>"]
+name = "tfhe-gps-distance"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tfhe = { version = "0.8.6", features = ["boolean", "shortint", "integer"]}
