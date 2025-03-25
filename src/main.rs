@@ -1,79 +1,227 @@
 use tfhe::prelude::*;
-use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32};
+use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, ClientKey, FheBool};
 use std::time::Instant;
+use std::f64::consts::PI;
+
+// Scale factors for fixed-point arithmetic
+const SCALE_FACTOR: u32 = 10_000;
+const EARTH_RADIUS_KM: u32 = 6371;
+
+// Client-side precomputed values
+struct ClientData {
+    lat: FheUint32,         // Encrypted latitude in degrees (scaled)
+    lon: FheUint32,         // Encrypted longitude in degrees (scaled)
+    sin_lat: FheUint32,     // Encrypted sine of latitude
+    cos_lat: FheUint32,     // Encrypted cosine of latitude
+}
+
+// Function to precompute and encrypt client data (GPS coordinates & trig values)
+fn precompute_client_data(
+    lat_degrees: f64, 
+    lon_degrees: f64,
+    client_key: &ClientKey
+) -> Result<ClientData, Box<dyn std::error::Error>> {
+    println!("Precomputing values for coordinate: {:.4}° N, {:.4}° E", lat_degrees, lon_degrees);
+    
+    // Convert to radians
+    let lat_radians = lat_degrees * PI / 180.0;
+    
+    // Calculate sine and cosine
+    let sin_lat_val = lat_radians.sin();
+    let cos_lat_val = lat_radians.cos();
+    
+    // Scale values
+    let scaled_lat = (lat_degrees * SCALE_FACTOR as f64) as u32;
+    let scaled_lon = (lon_degrees * SCALE_FACTOR as f64) as u32;
+    
+    // Scale trig values from [-1,1] to [0,SCALE_FACTOR]
+    let scaled_sin_lat = ((sin_lat_val + 1.0) * SCALE_FACTOR as f64 / 2.0) as u32;
+    let scaled_cos_lat = ((cos_lat_val + 1.0) * SCALE_FACTOR as f64 / 2.0) as u32;
+    
+    println!("  Original cos(lat): {:.4}, Scaled cos(lat): {}", cos_lat_val, scaled_cos_lat);
+    
+    // Encrypt all values
+    let encrypted_lat = FheUint32::try_encrypt(scaled_lat, client_key)?;
+    let encrypted_lon = FheUint32::try_encrypt(scaled_lon, client_key)?;
+    let encrypted_sin_lat = FheUint32::try_encrypt(scaled_sin_lat, client_key)?;
+    let encrypted_cos_lat = FheUint32::try_encrypt(scaled_cos_lat, client_key)?;
+    
+    Ok(ClientData {
+        lat: encrypted_lat,
+        lon: encrypted_lon,
+        sin_lat: encrypted_sin_lat,
+        cos_lat: encrypted_cos_lat,
+    })
+}
+
+// Calculate approximate squared distance between points
+// Uses simplified formula: d² ≈ (Δϕ)² + (cos(ϕ_avg)·Δλ)²
+fn calculate_approximate_distance_squared(
+    point1: &ClientData,
+    point2: &ClientData,
+) -> FheUint32 {
+    // Calculate delta latitude and longitude
+    // We need to handle the case where point2.lat > point1.lat and vice versa
+    // Since we're working with unsigned integers, we need to determine the order
+    let delta_lat_1 = &point1.lat - &point2.lat;
+    let delta_lat_2 = &point2.lat - &point1.lat;
+    
+    // Similarly for longitude
+    let delta_lon_1 = &point1.lon - &point2.lon;
+    let delta_lon_2 = &point2.lon - &point1.lon;
+    
+    // Use the smaller of the two deltas for both lat and lon
+    let delta_lat = delta_lat_1.min(&delta_lat_2);
+    let delta_lon = delta_lon_1.min(&delta_lon_2);
+    
+    // Square delta latitude
+    let delta_lat_squared = &delta_lat * &delta_lat;
+    
+    // Get the cosine values and rescale from [0,SCALE_FACTOR] back to [0,1]
+    // First, shift back to [-SCALE_FACTOR/2, SCALE_FACTOR/2]
+    let rescaled_cos_lat1 = &point1.cos_lat * 2_u32 - SCALE_FACTOR;
+    let rescaled_cos_lat2 = &point2.cos_lat * 2_u32 - SCALE_FACTOR;
+    
+    // Calculate the weighted delta longitude using the average cosine
+    // We multiply by cos_lat and then divide by SCALE_FACTOR to get the proper scaling
+    let weighted_delta_lon = &delta_lon * (rescaled_cos_lat1 + rescaled_cos_lat2) / (2_u32 * SCALE_FACTOR);
+    
+    // Square the weighted delta longitude
+    let weighted_delta_lon_squared = &weighted_delta_lon * &weighted_delta_lon;
+    
+    // Sum the squared terms to get the approximate squared distance
+    // We need to ensure the weighting is correct for both terms
+    let distance_squared = &delta_lat_squared + &weighted_delta_lon_squared;
+    
+    distance_squared
+}
+
+// Compare which point is closer to the reference point
+fn compare_distances(
+    point_x: &ClientData,
+    point_y: &ClientData,
+    reference_z: &ClientData,
+) -> FheBool {
+    println!("Calculating approximate distance from X to Z...");
+    let dist_x_to_z_squared = calculate_approximate_distance_squared(point_x, reference_z);
+    
+    println!("Calculating approximate distance from Y to Z...");
+    let dist_y_to_z_squared = calculate_approximate_distance_squared(point_y, reference_z);
+    
+    println!("Comparing distances...");
+    // Return true if X is closer to Z than Y is to Z
+    dist_x_to_z_squared.lt(&dist_y_to_z_squared)
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting... Determining which point is closer to point Z...");
+    println!("Starting GPS distance comparison using FHE...");
+    println!("Following simplified protocol sketch with client precomputation");
 
-    // Configure TFHE for homomorphic integer encryption
+    // Configure TFHE
     let config = ConfigBuilder::default().build();
-
-    // Generate client and server keys
     let (client_key, server_keys) = generate_keys(config);
-
-    // Set server key for performing operations on encrypted data
     set_server_key(server_keys);
 
-    // Example GPS coordinates for points X, Y, and Z (scaled by 10,000)
+    // Client-side: Precompute and encrypt data for 3 points
+    println!("\n1. CLIENT SIDE: Precomputing and encrypting coordinates");
+    
     // Basel, Switzerland (Point X)
-    let x_lat = (47.5596 * 10_000.0) as u32; // Latitude of point X (47.5596° N)
-    let x_lon = (7.5886 * 10_000.0) as u32;  // Longitude of point X (7.5886° E)
-    println!("Point X (Basel): Latitude 47.5596° N, Longitude 7.5886° E");
-
+    let x_lat = 47.5596;
+    let x_lon = 7.5886;
+    println!("Point X (Basel): Latitude {:.4}° N, Longitude {:.4}° E", x_lat, x_lon);
+    let client_data_x = precompute_client_data(x_lat, x_lon, &client_key)?;
+    
     // Lugano, Switzerland (Point Y)
-    let y_lat = (46.0037 * 10_000.0) as u32; // Latitude of point Y (46.0037° N)
-    let y_lon = (8.9511 * 10_000.0) as u32;  // Longitude of point Y (8.9511° E)
-    println!("Point Y (Lugano): Latitude 46.0037° N, Longitude 8.9511° E");
+    let y_lat = 46.0037;
+    let y_lon = 8.9511;
+    println!("Point Y (Lugano): Latitude {:.4}° N, Longitude {:.4}° E", y_lat, y_lon);
+    let client_data_y = precompute_client_data(y_lat, y_lon, &client_key)?;
+    
+    // Zurich, Switzerland (Point Z - reference point)
+    let z_lat = 47.3769;
+    let z_lon = 8.5417;
+    println!("Point Z (Zurich): Latitude {:.4}° N, Longitude {:.4}° E", z_lat, z_lon);
+    let client_data_z = precompute_client_data(z_lat, z_lon, &client_key)?;
 
-    // Zurich, Switzerland (Point Z)
-    let z_lat = (47.3769 * 10_000.0) as u32; // Latitude of point Z (47.3769° N)
-    let z_lon = (8.5417 * 10_000.0) as u32;  // Longitude of point Z (8.5417° E)
-    println!("Point Z (Zurich): Latitude 47.3769° N, Longitude 8.5417° E");
+    // For debugging: verify the actual scaling
+    println!("\nPlaintext calculations for verification:");
+    println!("Distance X-Z (Basel to Zurich): {:.2} km", haversine_distance(x_lat, x_lon, z_lat, z_lon));
+    println!("Distance Y-Z (Lugano to Zurich): {:.2} km", haversine_distance(y_lat, y_lon, z_lat, z_lon));
+    
+    let approx_dist_xz = approximate_distance(x_lat, x_lon, z_lat, z_lon);
+    let approx_dist_yz = approximate_distance(y_lat, y_lon, z_lat, z_lon);
+    println!("Approximate distance X-Z: {:.2} units", approx_dist_xz);
+    println!("Approximate distance Y-Z: {:.2} units", approx_dist_yz);
+    println!("Basel should be closer: {}", approx_dist_xz < approx_dist_yz);
 
-    // Encrypt the coordinates using the client key
-    let encrypted_x_lat = FheUint32::try_encrypt(x_lat, &client_key)?;
-    let encrypted_x_lon = FheUint32::try_encrypt(x_lon, &client_key)?;
-    let encrypted_y_lat = FheUint32::try_encrypt(y_lat, &client_key)?;
-    let encrypted_y_lon = FheUint32::try_encrypt(y_lon, &client_key)?;
-    let encrypted_z_lat = FheUint32::try_encrypt(z_lat, &client_key)?;
-    let encrypted_z_lon = FheUint32::try_encrypt(z_lon, &client_key)?;
-
-    println!("Everything is encrypted. Let's start the computation...");
-
-    // Start timing the main computation
+    // Server-side: Calculate and compare distances
+    println!("\n2. SERVER SIDE: Performing FHE computations on encrypted data");
     let start_time = Instant::now();
-
-    // Compute squared Euclidean distance from X to Z: (x_lat - z_lat)^2 + (x_lon - z_lon)^2
-    let dx_z = &encrypted_x_lat - &encrypted_z_lat;
-    let dy_z = &encrypted_x_lon - &encrypted_z_lon;
-    let dx_z2 = &dx_z * &dx_z;
-    let dy_z2 = &dy_z * &dy_z;
-    let distance_xz = &dx_z2 + &dy_z2;
-
-    // Compute squared Euclidean distance from Y to Z: (y_lat - z_lat)^2 + (y_lon - z_lon)^2
-    let dy_z_y = &encrypted_y_lat - &encrypted_z_lat;
-    let dx_z_y = &encrypted_y_lon - &encrypted_z_lon;
-    let dx_z_y2 = &dy_z_y * &dy_z_y;
-    let dy_z_y2 = &dx_z_y * &dx_z_y;
-    let distance_yz = &dx_z_y2 + &dy_z_y2;
-
-    // Compare distances homomorphically to determine which is smaller
-    let closer_x = &distance_xz.lt(&distance_yz); // true if X is closer, false if Y is closer
-
-    // Stop timing the computation
+    
+    let closer_x = compare_distances(&client_data_x, &client_data_y, &client_data_z);
+    
     let duration = start_time.elapsed();
 
-    // Decrypt results to determine the closer point
+    // Client-side: Decrypt final result
+    println!("\n3. CLIENT SIDE: Decrypting the result");
     let is_x_closer: bool = closer_x.decrypt(&client_key);
 
+    // Display results
+    println!("\nResults:");
     if is_x_closer {
         println!("Point X (Basel) is closer to point Z (Zurich).");
     } else {
         println!("Point Y (Lugano) is closer to point Z (Zurich).");
     }
-
-    // Print the computation duration (excluding key generation)
-    println!("Computation time (excluding key generation): {:?}", duration);
+    
+    // Calculate actual distances for verification
+    let actual_dist_xz = haversine_distance(x_lat, x_lon, z_lat, z_lon);
+    let actual_dist_yz = haversine_distance(y_lat, y_lon, z_lat, z_lon);
+    
+    println!("\nVerification with plaintext calculation:");
+    println!("Actual distance X-Z (Basel to Zurich): {:.2} km", actual_dist_xz);
+    println!("Actual distance Y-Z (Lugano to Zurich): {:.2} km", actual_dist_yz);
+    println!("Computation time for FHE comparison: {:?}", duration);
 
     Ok(())
+}
+
+// Function to calculate the approximate distance for verification
+fn approximate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    // Convert to radians
+    let lat1_rad = lat1 * PI / 180.0;
+    let lat2_rad = lat2 * PI / 180.0;
+    
+    // Calculate delta in degrees
+    let delta_lat = (lat2 - lat1).abs();
+    let delta_lon = (lon2 - lon1).abs();
+    
+    // Calculate the average cosine
+    let avg_cos = (lat1_rad.cos() + lat2_rad.cos()) / 2.0;
+    
+    // Calculate squared distance
+    let dist_squared = delta_lat * delta_lat + (avg_cos * delta_lon) * (avg_cos * delta_lon);
+    
+    dist_squared.sqrt()
+}
+
+// Helper function to calculate actual distance using Haversine formula (for verification)
+fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    // Convert coordinates from degrees to radians
+    let lat1_rad = lat1 * PI / 180.0;
+    let lon1_rad = lon1 * PI / 180.0;
+    let lat2_rad = lat2 * PI / 180.0;
+    let lon2_rad = lon2 * PI / 180.0;
+    
+    // Calculate differences
+    let delta_lat = lat2_rad - lat1_rad;
+    let delta_lon = lon2_rad - lon1_rad;
+    
+    // Haversine formula
+    let a = (delta_lat/2.0).sin().powi(2) + 
+            lat1_rad.cos() * lat2_rad.cos() * (delta_lon/2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    
+    // Distance in kilometers
+    EARTH_RADIUS_KM as f64 * c
 }
