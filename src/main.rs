@@ -11,8 +11,8 @@ const EARTH_RADIUS_KM: u32 = 6371;
 struct ClientData {
     lat: FheUint32,         // Encrypted latitude in degrees (scaled)
     lon: FheUint32,         // Encrypted longitude in degrees (scaled)
-    sin_lat: FheUint32,     // Encrypted sine of latitude
     cos_lat: FheUint32,     // Encrypted cosine of latitude
+    sin_lat: FheUint32,     // Encrypted sine of latitude
 }
 
 // Function to precompute and encrypt client data (GPS coordinates & trig values)
@@ -54,9 +54,11 @@ fn precompute_client_data(
     })
 }
 
-// Calculate approximate squared distance between points
-// Uses simplified formula: d² ≈ (Δϕ)² + (cos(ϕ_avg)·Δλ)²
-fn calculate_approximate_distance_squared(
+// Calculate approximate squared distance between points using Haversine formula
+// For small angles, sin²(θ/2) ≈ (θ/2)², so we can approximate:
+// hav(d/r) = hav(Δϕ) + cos(ϕ₁)·cos(ϕ₂)·hav(Δλ)
+// where hav(θ) = sin²(θ/2)
+fn calculate_haversine_distance_squared(
     point1: &ClientData,
     point2: &ClientData,
 ) -> FheUint32 {
@@ -74,24 +76,26 @@ fn calculate_approximate_distance_squared(
     let delta_lat = delta_lat_1.min(&delta_lat_2);
     let delta_lon = delta_lon_1.min(&delta_lon_2);
     
-    // Square delta latitude
-    let delta_lat_squared = &delta_lat * &delta_lat;
+    // Calculate hav(Δϕ) ≈ (Δϕ/2)²
+    // We divide by 2 first to avoid overflow
+    let delta_lat_half = &delta_lat / 2_u32;
+    let hav_delta_lat = &delta_lat_half * &delta_lat_half;
     
     // Get the cosine values and rescale from [0,SCALE_FACTOR] back to [0,1]
     // First, shift back to [-SCALE_FACTOR/2, SCALE_FACTOR/2]
     let rescaled_cos_lat1 = &point1.cos_lat * 2_u32 - SCALE_FACTOR;
     let rescaled_cos_lat2 = &point2.cos_lat * 2_u32 - SCALE_FACTOR;
     
-    // Calculate the weighted delta longitude using the average cosine
+    // Calculate hav(Δλ) ≈ (Δλ/2)²
+    let delta_lon_half = &delta_lon / 2_u32;
+    let hav_delta_lon = &delta_lon_half * &delta_lon_half;
+    
+    // Calculate cos(ϕ₁)·cos(ϕ₂)·hav(Δλ)
     // We multiply by cos_lat and then divide by SCALE_FACTOR to get the proper scaling
-    let weighted_delta_lon = &delta_lon * (rescaled_cos_lat1 + rescaled_cos_lat2) / (2_u32 * SCALE_FACTOR);
+    let weighted_hav_delta_lon = &hav_delta_lon * (rescaled_cos_lat1 + rescaled_cos_lat2) / (2_u32 * SCALE_FACTOR);
     
-    // Square the weighted delta longitude
-    let weighted_delta_lon_squared = &weighted_delta_lon * &weighted_delta_lon;
-    
-    // Sum the squared terms to get the approximate squared distance
-    // We need to ensure the weighting is correct for both terms
-    let distance_squared = &delta_lat_squared + &weighted_delta_lon_squared;
+    // Sum the terms to get the approximate haversine distance squared
+    let distance_squared = &hav_delta_lat + &weighted_hav_delta_lon;
     
     distance_squared
 }
@@ -103,10 +107,10 @@ fn compare_distances(
     reference_z: &ClientData,
 ) -> FheBool {
     println!("Calculating approximate distance from X to Z...");
-    let dist_x_to_z_squared = calculate_approximate_distance_squared(point_x, reference_z);
+    let dist_x_to_z_squared = calculate_haversine_distance_squared(point_x, reference_z);
     
     println!("Calculating approximate distance from Y to Z...");
-    let dist_y_to_z_squared = calculate_approximate_distance_squared(point_y, reference_z);
+    let dist_y_to_z_squared = calculate_haversine_distance_squared(point_y, reference_z);
     
     println!("Comparing distances...");
     // Return true if X is closer to Z than Y is to Z
@@ -115,7 +119,7 @@ fn compare_distances(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting GPS distance comparison using FHE...");
-    println!("Following simplified protocol sketch with client precomputation");
+    println!("Following Haversine formula approximation with client precomputation");
 
     // Configure TFHE
     let config = ConfigBuilder::default().build();
@@ -148,8 +152,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Distance X-Z (Basel to Zurich): {:.2} km", haversine_distance(x_lat, x_lon, z_lat, z_lon));
     println!("Distance Y-Z (Lugano to Zurich): {:.2} km", haversine_distance(y_lat, y_lon, z_lat, z_lon));
     
-    let approx_dist_xz = approximate_distance(x_lat, x_lon, z_lat, z_lon);
-    let approx_dist_yz = approximate_distance(y_lat, y_lon, z_lat, z_lon);
+    let approx_dist_xz = approximate_haversine_distance(x_lat, x_lon, z_lat, z_lon);
+    let approx_dist_yz = approximate_haversine_distance(y_lat, y_lon, z_lat, z_lon);
     println!("Approximate distance X-Z: {:.2} units", approx_dist_xz);
     println!("Approximate distance Y-Z: {:.2} units", approx_dist_yz);
     println!("Basel should be closer: {}", approx_dist_xz < approx_dist_yz);
@@ -186,8 +190,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Function to calculate the approximate distance for verification
-fn approximate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+// Function to calculate the approximate Haversine distance for verification
+fn approximate_haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     // Convert to radians
     let lat1_rad = lat1 * PI / 180.0;
     let lat2_rad = lat2 * PI / 180.0;
@@ -199,8 +203,13 @@ fn approximate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     // Calculate the average cosine
     let avg_cos = (lat1_rad.cos() + lat2_rad.cos()) / 2.0;
     
-    // Calculate squared distance
-    let dist_squared = delta_lat * delta_lat + (avg_cos * delta_lon) * (avg_cos * delta_lon);
+    // Calculate squared distance using small-angle approximation
+    // hav(d/r) = hav(Δϕ) + cos(ϕ₁)·cos(ϕ₂)·hav(Δλ)
+    // where hav(θ) ≈ (θ/2)² for small angles
+    let hav_delta_lat = (delta_lat / 2.0).powi(2);
+    let hav_delta_lon = (delta_lon / 2.0).powi(2);
+    
+    let dist_squared = hav_delta_lat + avg_cos * hav_delta_lon;
     
     dist_squared.sqrt()
 }
