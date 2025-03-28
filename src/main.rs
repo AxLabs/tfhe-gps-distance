@@ -9,6 +9,7 @@ const EARTH_RADIUS_KM: u32 = 6371;
 
 // Client-side precomputed values
 struct ClientData {
+    name: Option<String>,   // Optional name for the point
     lat: FheUint32,         // Encrypted latitude in degrees (scaled)
     lon: FheUint32,         // Encrypted longitude in degrees (scaled)
     cos_lat: FheUint32,     // Encrypted cosine of latitude
@@ -19,9 +20,17 @@ struct ClientData {
 fn precompute_client_data(
     lat_degrees: f64, 
     lon_degrees: f64,
+    name: Option<String>,
     client_key: &ClientKey
 ) -> Result<ClientData, Box<dyn std::error::Error>> {
-    println!("Precomputing values for coordinate: {:.4}° N, {:.4}° E", lat_degrees, lon_degrees);
+    let point_desc = name.as_deref().map_or("", |n| n);
+    let formatted_desc = if point_desc.is_empty() { 
+        String::new() 
+    } else { 
+        format!(" ({})", point_desc)
+    };
+    println!("Precomputing values for coordinate{}: {:.4}° N, {:.4}° E", 
+             formatted_desc, lat_degrees, lon_degrees);
     
     // Convert to radians
     let lat_radians = lat_degrees * PI / 180.0;
@@ -47,6 +56,7 @@ fn precompute_client_data(
     let encrypted_cos_lat = FheUint32::try_encrypt(scaled_cos_lat, client_key)?;
     
     Ok(ClientData {
+        name,
         lat: encrypted_lat,
         lon: encrypted_lon,
         sin_lat: encrypted_sin_lat,
@@ -129,34 +139,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Client-side: Precompute and encrypt data for 3 points
     println!("\n1. CLIENT SIDE: Precomputing and encrypting coordinates");
     
-    // Basel, Switzerland (Point X)
+    // Point X
     let x_lat = 47.5596;
     let x_lon = 7.5886;
-    println!("Point X (Basel): Latitude {:.4}° N, Longitude {:.4}° E", x_lat, x_lon);
-    let client_data_x = precompute_client_data(x_lat, x_lon, &client_key)?;
+    let x_name = Some("Basel".to_string());
+    let x_desc = if let Some(n) = x_name.as_deref() { format!(" ({})", n) } else { String::new() };
+    println!("Point X{}: Latitude {:.4}° N, Longitude {:.4}° E", x_desc, x_lat, x_lon);
+    let client_data_x = precompute_client_data(x_lat, x_lon, x_name.clone(), &client_key)?;
     
-    // Lugano, Switzerland (Point Y)
+    // Point Y
     let y_lat = 46.0037;
     let y_lon = 8.9511;
-    println!("Point Y (Lugano): Latitude {:.4}° N, Longitude {:.4}° E", y_lat, y_lon);
-    let client_data_y = precompute_client_data(y_lat, y_lon, &client_key)?;
+    let y_name = Some("Lugano".to_string());
+    let y_desc = if let Some(n) = y_name.as_deref() { format!(" ({})", n) } else { String::new() };
+    println!("Point Y{}: Latitude {:.4}° N, Longitude {:.4}° E", y_desc, y_lat, y_lon);
+    let client_data_y = precompute_client_data(y_lat, y_lon, y_name.clone(), &client_key)?;
     
-    // Zurich, Switzerland (Point Z - reference point)
+    // Point Z (reference point)
     let z_lat = 47.3769;
     let z_lon = 8.5417;
-    println!("Point Z (Zurich): Latitude {:.4}° N, Longitude {:.4}° E", z_lat, z_lon);
-    let client_data_z = precompute_client_data(z_lat, z_lon, &client_key)?;
+    let z_name = Some("Zurich".to_string());
+    let z_desc = if let Some(n) = z_name.as_deref() { format!(" ({})", n) } else { String::new() };
+    println!("Point Z{}: Latitude {:.4}° N, Longitude {:.4}° E", z_desc, z_lat, z_lon);
+    let client_data_z = precompute_client_data(z_lat, z_lon, z_name.clone(), &client_key)?;
 
     // For debugging: verify the actual scaling
     println!("\nPlaintext calculations for verification:");
-    println!("Distance X-Z (Basel to Zurich): {:.2} km", haversine_distance(x_lat, x_lon, z_lat, z_lon));
-    println!("Distance Y-Z (Lugano to Zurich): {:.2} km", haversine_distance(y_lat, y_lon, z_lat, z_lon));
+    println!("Distance X-Z: {:.2} km", haversine_distance(x_lat, x_lon, z_lat, z_lon));
+    println!("Distance Y-Z: {:.2} km", haversine_distance(y_lat, y_lon, z_lat, z_lon));
     
     let approx_dist_xz = approximate_haversine_distance(x_lat, x_lon, z_lat, z_lon);
     let approx_dist_yz = approximate_haversine_distance(y_lat, y_lon, z_lat, z_lon);
     println!("Approximate distance X-Z: {:.2} units", approx_dist_xz);
     println!("Approximate distance Y-Z: {:.2} units", approx_dist_yz);
-    println!("Basel should be closer: {}", approx_dist_xz < approx_dist_yz);
+    println!("X should be closer: {}", approx_dist_xz < approx_dist_yz);
 
     // Server-side: Calculate and compare distances
     println!("\n2. SERVER SIDE: Performing FHE computations on encrypted data");
@@ -173,9 +189,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Display results
     println!("\nResults:");
     if is_x_closer {
-        println!("Point X (Basel) is closer to point Z (Zurich).");
+        println!("Point X{} is closer to point Z{}.", x_desc, z_desc);
     } else {
-        println!("Point Y (Lugano) is closer to point Z (Zurich).");
+        println!("Point Y{} is closer to point Z{}.", y_desc, z_desc);
     }
     
     // Calculate actual distances for verification
@@ -183,8 +199,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actual_dist_yz = haversine_distance(y_lat, y_lon, z_lat, z_lon);
     
     println!("\nVerification with plaintext calculation:");
-    println!("Actual distance X-Z (Basel to Zurich): {:.2} km", actual_dist_xz);
-    println!("Actual distance Y-Z (Lugano to Zurich): {:.2} km", actual_dist_yz);
+    println!("Actual distance X-Z: {:.2} km", actual_dist_xz);
+    println!("Actual distance Y-Z: {:.2} km", actual_dist_yz);
     println!("Computation time for FHE comparison: {:?}", duration);
 
     Ok(())
