@@ -4,5 +4,15 @@ name = "tfhe-gps-distance"
 version = "0.1.0"
 edition = "2024"
 
+# Define the library target
+[lib]
+name = "tfhe_gps_distance"
+path = "src/lib.rs"
+
+# Define the binary target
+[[bin]]
+name = "tfhe-gps-distance"
+path = "src/main.rs"
+
 [dependencies]
 tfhe = { version = "1.1.1", features = ["boolean", "shortint", "integer"]}
