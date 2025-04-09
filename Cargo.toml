@@ -2,7 +2,7 @@
 authors = ["Guil. Sperb Machado <guil@axlabs.com>"]
 name = "tfhe-gps-distance"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-tfhe = { version = "0.8.6", features = ["boolean", "shortint", "integer"]}
+tfhe = { version = "1.1.1", features = ["boolean", "shortint", "integer"]}
