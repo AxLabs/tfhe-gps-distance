@@ -153,4 +153,334 @@ fn test_equator_points() {
     assert!(is_x_closer, "Quito should be closer to Reference than Singapore");
     assert!(dist_xz < dist_yz, "Distance Quito-Reference should be less than Singapore-Reference");
     println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_pole_points() {
+    let point_x = Point {
+        name: "NorthPole".to_string(),
+        lat: 90.0,
+        lon: 0.0,
+    };
+    let point_y = Point {
+        name: "SouthPole".to_string(),
+        lat: -90.0,
+        lon: 0.0,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(!is_x_closer, "South Pole should be closer to Reference than North Pole");
+    assert!(dist_yz < dist_xz, "Distance SouthPole-Reference should be less than NorthPole-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_date_line_crossing() {
+    let point_x = Point {
+        name: "Tokyo".to_string(),
+        lat: 35.6762,
+        lon: 139.6503,
+    };
+    let point_y = Point {
+        name: "Hawaii".to_string(),
+        lat: 21.3069,
+        lon: -157.8583,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 180.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "Tokyo should be closer to Reference than Hawaii");
+    assert!(dist_xz < dist_yz, "Distance Tokyo-Reference should be less than Hawaii-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_extreme_longitude_diff() {
+    let point_x = Point {
+        name: "Sydney".to_string(),
+        lat: -33.8688,
+        lon: 151.2093,
+    };
+    let point_y = Point {
+        name: "BuenosAires".to_string(),
+        lat: -34.6037,
+        lon: -58.3816,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(!is_x_closer, "Buenos Aires should be closer to Reference than Sydney");
+    assert!(dist_yz < dist_xz, "Distance BuenosAires-Reference should be less than Sydney-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_small_latitude_diff() {
+    let point_x = Point {
+        name: "Point1".to_string(),
+        lat: 45.0,
+        lon: 0.0,
+    };
+    let point_y = Point {
+        name: "Point2".to_string(),
+        lat: 45.0001,
+        lon: 0.0,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 45.00005,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "Point1 should be closer to Reference than Point2");
+    assert!(dist_xz < dist_yz, "Distance Point1-Reference should be less than Point2-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_small_longitude_diff() {
+    let point_x = Point {
+        name: "Point1".to_string(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+    let point_y = Point {
+        name: "Point2".to_string(),
+        lat: 0.0,
+        lon: 0.0001,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 0.00005,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "Point1 should be closer to Reference than Point2");
+    assert!(dist_xz < dist_yz, "Distance Point1-Reference should be less than Point2-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_same_latitude_opposite_longitude() {
+    let point_x = Point {
+        name: "NewYork".to_string(),
+        lat: 40.7128,
+        lon: -74.0060,
+    };
+    let point_y = Point {
+        name: "Beijing".to_string(),
+        lat: 40.7128,
+        lon: 116.4074,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 40.7128,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "New York should be closer to Reference than Beijing");
+    assert!(dist_xz < dist_yz, "Distance NewYork-Reference should be less than Beijing-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_same_longitude_opposite_latitude() {
+    let point_x = Point {
+        name: "Helsinki".to_string(),
+        lat: 60.1699,
+        lon: 24.9384,
+    };
+    let point_y = Point {
+        name: "CapeTown".to_string(),
+        lat: -33.9249,
+        lon: 24.9384,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 24.9384,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "Helsinki should be closer to Reference than Cape Town");
+    assert!(dist_xz < dist_yz, "Distance Helsinki-Reference should be less than CapeTown-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_negative_latitude() {
+    let point_x = Point {
+        name: "Rio".to_string(),
+        lat: -22.9068,
+        lon: -43.1729,
+    };
+    let point_y = Point {
+        name: "Cairo".to_string(),
+        lat: 30.0444,
+        lon: 31.2357,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "Rio should be closer to Reference than Cairo");
+    assert!(dist_xz < dist_yz, "Distance Rio-Reference should be less than Cairo-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_negative_longitude() {
+    let point_x = Point {
+        name: "LosAngeles".to_string(),
+        lat: 34.0522,
+        lon: -118.2437,
+    };
+    let point_y = Point {
+        name: "Tokyo".to_string(),
+        lat: 35.6762,
+        lon: 139.6503,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(is_x_closer, "Los Angeles should be closer to Reference than Tokyo");
+    assert!(dist_xz < dist_yz, "Distance LosAngeles-Reference should be less than Tokyo-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_extreme_latitude() {
+    let point_x = Point {
+        name: "NearNorthPole".to_string(),
+        lat: 89.9999,
+        lon: 0.0,
+    };
+    let point_y = Point {
+        name: "NearSouthPole".to_string(),
+        lat: -89.9999,
+        lon: 0.0,
+    };
+    let point_z = Point {
+        name: "Reference".to_string(),
+        lat: 0.0,
+        lon: 0.0,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    assert!(!is_x_closer, "Near South Pole should be closer to Reference than Near North Pole");
+    assert!(dist_yz < dist_xz, "Distance NearSouthPole-Reference should be less than NearNorthPole-Reference");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_identical_points_x_y() {
+    let point_x = Point {
+        name: "Zurich".to_string(),
+        lat: 47.3769,
+        lon: 8.5417,
+    };
+    let point_y = Point {
+        name: "Zurich".to_string(),
+        lat: 47.3769,
+        lon: 8.5417,
+    };
+    let point_z = Point {
+        name: "Basel".to_string(),
+        lat: 47.5596,
+        lon: 7.5886,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    // Since X and Y are identical, the comparison should return true (X is closer or equal)
+    assert!(is_x_closer, "When X and Y are identical, X should be considered closer or equal to Z");
+    assert!(dist_xz == dist_yz, "Distances should be equal when X and Y are identical");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_identical_points_x_z() {
+    let point_x = Point {
+        name: "Zurich".to_string(),
+        lat: 47.3769,
+        lon: 8.5417,
+    };
+    let point_y = Point {
+        name: "Basel".to_string(),
+        lat: 47.5596,
+        lon: 7.5886,
+    };
+    let point_z = Point {
+        name: "Zurich".to_string(),
+        lat: 47.3769,
+        lon: 8.5417,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    // Since X and Z are identical, X should be closer to Z than Y
+    assert!(is_x_closer, "When X and Z are identical, X should be closer to Z than Y");
+    assert!(dist_xz == 0.0, "Distance should be 0 when X and Z are identical");
+    assert!(dist_xz < dist_yz, "Distance X-Z should be less than Y-Z when X and Z are identical");
+    println!("Test completed in {:.2?}", duration);
+}
+
+#[test]
+fn test_identical_points_y_z() {
+    let point_x = Point {
+        name: "Basel".to_string(),
+        lat: 47.5596,
+        lon: 7.5886,
+    };
+    let point_y = Point {
+        name: "Zurich".to_string(),
+        lat: 47.3769,
+        lon: 8.5417,
+    };
+    let point_z = Point {
+        name: "Zurich".to_string(),
+        lat: 47.3769,
+        lon: 8.5417,
+    };
+
+    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
+    
+    // Since Y and Z are identical, X should be further from Z than Y
+    assert!(!is_x_closer, "When Y and Z are identical, X should be further from Z than Y");
+    assert!(dist_yz == 0.0, "Distance should be 0 when Y and Z are identical");
+    assert!(dist_xz > dist_yz, "Distance X-Z should be greater than Y-Z when Y and Z are identical");
+    println!("Test completed in {:.2?}", duration);
 } 
