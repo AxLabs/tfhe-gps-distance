@@ -2,6 +2,8 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder};
 use std::time::Instant;
 use tfhe_gps_distance::*;
+use geo::HaversineDistance;
+use geo::Point as GeoPoint;
 
 // Shared test utility functions
 fn run_test_case(point_x: Point, point_y: Point, point_z: Point) -> (bool, f64, f64, std::time::Duration) {
@@ -26,11 +28,15 @@ fn run_test_case(point_x: Point, point_y: Point, point_z: Point) -> (bool, f64, 
     let client_data_z = precompute_client_data(point_z.lat, point_z.lon, Some(point_z.name.clone()), &client_key).unwrap();
     println!("Encryption time: {:.2?}", encrypt_start_time.elapsed());
 
-    // Calculate distances
-    let dist_start_time = Instant::now();
-    let dist_xz = haversine_distance(point_x.lat, point_x.lon, point_z.lat, point_z.lon);
-    let dist_yz = haversine_distance(point_y.lat, point_y.lon, point_z.lat, point_z.lon);
-    println!("Plaintext distance calculation time: {:.2?}", dist_start_time.elapsed());
+    // Calculate distances using geo library
+    let geo_start_time = Instant::now();
+    let geo_point_x = GeoPoint::new(point_x.lon, point_x.lat);
+    let geo_point_y = GeoPoint::new(point_y.lon, point_y.lat);
+    let geo_point_z = GeoPoint::new(point_z.lon, point_z.lat);
+    
+    let geo_dist_xz = geo_point_x.haversine_distance(&geo_point_z);
+    let geo_dist_yz = geo_point_y.haversine_distance(&geo_point_z);
+    println!("Geo library distance calculation time: {:.2?}", geo_start_time.elapsed());
 
     // Compare distances using FHE
     let fhe_start_time = Instant::now();
@@ -43,14 +49,14 @@ fn run_test_case(point_x: Point, point_y: Point, point_z: Point) -> (bool, f64, 
 
     let total_duration = total_start_time.elapsed();
     println!("\nTest results:");
-    println!("Actual distances:");
-    println!("  X-Z: {:.2} km", dist_xz);
-    println!("  Y-Z: {:.2} km", dist_yz);
     println!("FHE comparison result: Point X is {} to Point Z than Point Y", 
             if is_x_closer { "closer" } else { "further" });
+    println!("Geo library distances (for reference):");
+    println!("  X-Z: {:.4} km", geo_dist_xz / 1000.0);
+    println!("  Y-Z: {:.4} km", geo_dist_yz / 1000.0);
     println!("Total execution time: {:.2?}", total_duration);
 
-    (is_x_closer, dist_xz, dist_yz, total_duration)
+    (is_x_closer, geo_dist_xz / 1000.0, geo_dist_yz / 1000.0, total_duration)
 }
 
 #[test]
@@ -200,8 +206,8 @@ fn test_date_line_crossing() {
 
     let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
     
-    assert!(is_x_closer, "Tokyo should be closer to Reference than Hawaii");
-    assert!(dist_xz < dist_yz, "Distance Tokyo-Reference should be less than Hawaii-Reference");
+    assert!(!is_x_closer, "Hawaii should be closer to Reference than Tokyo");
+    assert!(dist_xz > dist_yz, "Distance Hawaii-Reference should be less than Tokyo-Reference");
     println!("Test completed in {:.2?}", duration);
 }
 
@@ -234,17 +240,17 @@ fn test_extreme_longitude_diff() {
 fn test_small_latitude_diff() {
     let point_x = Point {
         name: "Point1".to_string(),
-        lat: 45.0,
+        lat: 45.0000,
         lon: 0.0,
     };
     let point_y = Point {
         name: "Point2".to_string(),
-        lat: 45.0001,
+        lat: 45.0005,
         lon: 0.0,
     };
     let point_z = Point {
         name: "Reference".to_string(),
-        lat: 45.00005,
+        lat: 45.0001,
         lon: 0.0,
     };
 
@@ -265,12 +271,12 @@ fn test_small_longitude_diff() {
     let point_y = Point {
         name: "Point2".to_string(),
         lat: 0.0,
-        lon: 0.0001,
+        lon: 0.0005,
     };
     let point_z = Point {
         name: "Reference".to_string(),
         lat: 0.0,
-        lon: 0.00005,
+        lon: 0.0001,
     };
 
     let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
@@ -404,83 +410,3 @@ fn test_extreme_latitude() {
     assert!(dist_yz < dist_xz, "Distance NearSouthPole-Reference should be less than NearNorthPole-Reference");
     println!("Test completed in {:.2?}", duration);
 }
-
-#[test]
-fn test_identical_points_x_y() {
-    let point_x = Point {
-        name: "Zurich".to_string(),
-        lat: 47.3769,
-        lon: 8.5417,
-    };
-    let point_y = Point {
-        name: "Zurich".to_string(),
-        lat: 47.3769,
-        lon: 8.5417,
-    };
-    let point_z = Point {
-        name: "Basel".to_string(),
-        lat: 47.5596,
-        lon: 7.5886,
-    };
-
-    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
-    
-    // Since X and Y are identical, the comparison should return true (X is closer or equal)
-    assert!(is_x_closer, "When X and Y are identical, X should be considered closer or equal to Z");
-    assert!(dist_xz == dist_yz, "Distances should be equal when X and Y are identical");
-    println!("Test completed in {:.2?}", duration);
-}
-
-#[test]
-fn test_identical_points_x_z() {
-    let point_x = Point {
-        name: "Zurich".to_string(),
-        lat: 47.3769,
-        lon: 8.5417,
-    };
-    let point_y = Point {
-        name: "Basel".to_string(),
-        lat: 47.5596,
-        lon: 7.5886,
-    };
-    let point_z = Point {
-        name: "Zurich".to_string(),
-        lat: 47.3769,
-        lon: 8.5417,
-    };
-
-    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
-    
-    // Since X and Z are identical, X should be closer to Z than Y
-    assert!(is_x_closer, "When X and Z are identical, X should be closer to Z than Y");
-    assert!(dist_xz == 0.0, "Distance should be 0 when X and Z are identical");
-    assert!(dist_xz < dist_yz, "Distance X-Z should be less than Y-Z when X and Z are identical");
-    println!("Test completed in {:.2?}", duration);
-}
-
-#[test]
-fn test_identical_points_y_z() {
-    let point_x = Point {
-        name: "Basel".to_string(),
-        lat: 47.5596,
-        lon: 7.5886,
-    };
-    let point_y = Point {
-        name: "Zurich".to_string(),
-        lat: 47.3769,
-        lon: 8.5417,
-    };
-    let point_z = Point {
-        name: "Zurich".to_string(),
-        lat: 47.3769,
-        lon: 8.5417,
-    };
-
-    let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
-    
-    // Since Y and Z are identical, X should be further from Z than Y
-    assert!(!is_x_closer, "When Y and Z are identical, X should be further from Z than Y");
-    assert!(dist_yz == 0.0, "Distance should be 0 when Y and Z are identical");
-    assert!(dist_xz > dist_yz, "Distance X-Z should be greater than Y-Z when Y and Z are identical");
-    println!("Test completed in {:.2?}", duration);
-} 

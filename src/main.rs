@@ -2,6 +2,8 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, ClientKey, FheBool};
 use std::time::Instant;
 use std::f64::consts::PI;
+use geo::prelude::*;
+use geo::Point as GeoPoint;
 
 // Scale factors for fixed-point arithmetic
 pub const SCALE_FACTOR: u32 = 1_000_000;
@@ -84,7 +86,26 @@ pub fn calculate_haversine_distance_squared(
     // Calculate deltas (Step 2)
     let diff_start_time = Instant::now();
     let delta_lat = (&point1.lat_rad - &point2.lat_rad).min(&(&point2.lat_rad - &point1.lat_rad));
-    let delta_lon = (&point1.lon_rad - &point2.lon_rad).min(&(&point2.lon_rad - &point1.lon_rad));
+    
+    // Handle International Date Line crossing for longitude difference
+    // For longitude, we need to consider the shortest path around the globe
+    // This means we need to consider both the direct difference and the path through the IDL
+    
+    // Calculate the direct difference
+    let direct_diff = &point1.lon_rad - &point2.lon_rad;
+    
+    // Calculate the complement (going the other way around the globe)
+    let complement_diff = &(&point2.lon_rad - &point1.lon_rad);
+    
+    // Calculate the path through the IDL
+    // This is effectively the complement of the direct difference
+    // We need to consider that the shortest path might be through the IDL
+    let idl_path = &(&point1.lon_rad + &point2.lon_rad);
+    
+    // The actual delta_lon should be the minimum of all possible paths
+    // This ensures we're always using the shortest path around the globe
+    let delta_lon = direct_diff.min(complement_diff).min(idl_path);
+    
     println!("    Difference calculation time: {:.2?}", diff_start_time.elapsed());
 
     // Step 3: Compute intermediate value 'a' using polynomial approximations
@@ -227,27 +248,6 @@ pub fn approximate_haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64
     dist_squared.sqrt()
 }
 
-// Helper function to calculate actual distance using Haversine formula (for verification)
-pub fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    // Convert coordinates from degrees to radians
-    let lat1_rad = lat1 * PI / 180.0;
-    let lon1_rad = lon1 * PI / 180.0;
-    let lat2_rad = lat2 * PI / 180.0;
-    let lon2_rad = lon2 * PI / 180.0;
-    
-    // Calculate differences
-    let delta_lat = lat2_rad - lat1_rad;
-    let delta_lon = lon2_rad - lon1_rad;
-    
-    // Haversine formula
-    let a = (delta_lat/2.0).sin().powi(2) + 
-            lat1_rad.cos() * lat2_rad.cos() * (delta_lon/2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-    
-    // Distance in kilometers
-    EARTH_RADIUS_KM as f64 * c
-}
-
 // Main function to execute the distance comparison
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Default test case points
@@ -329,13 +329,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // For debugging: verify the actual scaling
     println!("\nPlaintext calculations for verification:");
-    println!("Distance X-Z: {:.2} km", haversine_distance(points[0].lat, points[0].lon, points[2].lat, points[2].lon));
-    println!("Distance Y-Z: {:.2} km", haversine_distance(points[1].lat, points[1].lon, points[2].lat, points[2].lon));
+    let point_x = GeoPoint::new(points[0].lon, points[0].lat);
+    let point_y = GeoPoint::new(points[1].lon, points[1].lat);
+    let point_z = GeoPoint::new(points[2].lon, points[2].lat);
+    
+    println!("Distance X-Z: {:.4} km", point_x.haversine_distance(&point_z) / 1000.0);
+    println!("Distance Y-Z: {:.4} km", point_y.haversine_distance(&point_z) / 1000.0);
     
     let approx_dist_xz = approximate_haversine_distance(points[0].lat, points[0].lon, points[2].lat, points[2].lon);
     let approx_dist_yz = approximate_haversine_distance(points[1].lat, points[1].lon, points[2].lat, points[2].lon);
-    println!("Approximate distance X-Z: {:.2} units", approx_dist_xz);
-    println!("Approximate distance Y-Z: {:.2} units", approx_dist_yz);
+    println!("Approximate distance X-Z: {:.4} units", approx_dist_xz);
+    println!("Approximate distance Y-Z: {:.4} units", approx_dist_yz);
     println!("X should be closer: {}", approx_dist_xz < approx_dist_yz);
 
     // Server-side: Calculate and compare distances

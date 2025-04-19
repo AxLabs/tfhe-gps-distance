@@ -13,6 +13,5 @@ pub use main_mod::{
     precompute_client_data, 
     calculate_haversine_distance_squared, 
     compare_distances, 
-    approximate_haversine_distance, 
-    haversine_distance
+    approximate_haversine_distance
 }; 
