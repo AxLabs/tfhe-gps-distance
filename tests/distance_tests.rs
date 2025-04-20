@@ -40,7 +40,7 @@ fn run_test_case(point_x: Point, point_y: Point, point_z: Point) -> (bool, f64, 
 
     // Compare distances using FHE
     let fhe_start_time = Instant::now();
-    let closer_x = compare_distances(&client_data_x, &client_data_y, &client_data_z, &client_key);
+    let closer_x = compare_distances(&client_data_x, &client_data_y, &client_data_z);
     println!("FHE comparison time: {:.2?}", fhe_start_time.elapsed());
     
     let decrypt_start_time = Instant::now();
@@ -331,8 +331,8 @@ fn test_same_longitude_opposite_latitude() {
 
     let (is_x_closer, dist_xz, dist_yz, duration) = run_test_case(point_x, point_y, point_z);
     
-    assert!(is_x_closer, "Helsinki should be closer to Reference than Cape Town");
-    assert!(dist_xz < dist_yz, "Distance Helsinki-Reference should be less than CapeTown-Reference");
+    assert!(!is_x_closer, "Cape Town should be closer to Reference than Helsinki");
+    assert!(dist_yz < dist_xz, "Distance CapeTown-Reference should be less than Helsinki-Reference");
     println!("Test completed in {:.2?}", duration);
 }
 

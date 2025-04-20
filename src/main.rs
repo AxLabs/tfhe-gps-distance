@@ -80,8 +80,7 @@ pub fn precompute_client_data(
 // Using polynomial approximations as specified in the solution
 pub fn calculate_haversine_distance_squared(
     point1: &ClientData,
-    point2: &ClientData,
-    _client_key: &ClientKey
+    point2: &ClientData
 ) -> FheUint32 {
     // Calculate deltas (Step 2)
     let diff_start_time = Instant::now();
@@ -176,17 +175,16 @@ pub fn calculate_haversine_distance_squared(
 pub fn compare_distances(
     point_x: &ClientData,
     point_y: &ClientData,
-    reference_z: &ClientData,
-    client_key: &ClientKey
+    reference_z: &ClientData
 ) -> FheBool {
     println!("Calculating distance from X to Z...");
     let xz_start_time = Instant::now();
-    let x_to_z_value = calculate_haversine_distance_squared(point_x, reference_z, client_key);
+    let x_to_z_value = calculate_haversine_distance_squared(point_x, reference_z);
     println!("  X to Z calculation time: {:.2?}", xz_start_time.elapsed());
     
     println!("Calculating distance from Y to Z...");
     let yz_start_time = Instant::now();
-    let y_to_z_value = calculate_haversine_distance_squared(point_y, reference_z, client_key);
+    let y_to_z_value = calculate_haversine_distance_squared(point_y, reference_z);
     println!("  Y to Z calculation time: {:.2?}", yz_start_time.elapsed());
     
     println!("Comparing distances...");
@@ -346,7 +344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2. SERVER SIDE: Performing FHE computations on encrypted data");
     let start_time = Instant::now();
     
-    let closer_x = compare_distances(&client_data_x, &client_data_y, &client_data_z, &client_key);
+    let closer_x = compare_distances(&client_data_x, &client_data_y, &client_data_z);
     let is_x_closer = closer_x.decrypt(&client_key);
     
     let duration = start_time.elapsed();
