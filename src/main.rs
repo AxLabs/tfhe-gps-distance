@@ -2,7 +2,7 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32, ClientKey, FheBool};
 use std::time::Instant;
 use std::f64::consts::PI;
-use geo::prelude::*;
+use geo::{Distance, Haversine};
 use geo::Point as GeoPoint;
 
 // Scale factors for fixed-point arithmetic
@@ -331,8 +331,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let point_y = GeoPoint::new(points[1].lon, points[1].lat);
     let point_z = GeoPoint::new(points[2].lon, points[2].lat);
     
-    println!("Distance X-Z: {:.4} km", point_x.haversine_distance(&point_z) / 1000.0);
-    println!("Distance Y-Z: {:.4} km", point_y.haversine_distance(&point_z) / 1000.0);
+    println!("Distance X-Z: {:.4} km", Haversine.distance(point_x, point_z) / 1000.0);
+    println!("Distance Y-Z: {:.4} km", Haversine.distance(point_y, point_z) / 1000.0);
     
     let approx_dist_xz = approximate_haversine_distance(points[0].lat, points[0].lon, points[2].lat, points[2].lon);
     let approx_dist_yz = approximate_haversine_distance(points[1].lat, points[1].lon, points[2].lat, points[2].lon);

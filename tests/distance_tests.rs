@@ -2,7 +2,7 @@ use tfhe::prelude::*;
 use tfhe::{generate_keys, set_server_key, ConfigBuilder};
 use std::time::Instant;
 use tfhe_gps_distance::*;
-use geo::HaversineDistance;
+use geo::{Distance, Haversine};
 use geo::Point as GeoPoint;
 
 // Shared test utility functions
@@ -34,8 +34,8 @@ fn run_test_case(point_x: Point, point_y: Point, point_z: Point) -> (bool, f64, 
     let geo_point_y = GeoPoint::new(point_y.lon, point_y.lat);
     let geo_point_z = GeoPoint::new(point_z.lon, point_z.lat);
     
-    let geo_dist_xz = geo_point_x.haversine_distance(&geo_point_z);
-    let geo_dist_yz = geo_point_y.haversine_distance(&geo_point_z);
+    let geo_dist_xz = Haversine.distance(geo_point_x, geo_point_z);
+    let geo_dist_yz = Haversine.distance(geo_point_y, geo_point_z);
     println!("Geo library distance calculation time: {:.2?}", geo_start_time.elapsed());
 
     // Compare distances using FHE
